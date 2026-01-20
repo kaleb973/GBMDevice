@@ -13,7 +13,7 @@ from queue import Empty
 from serial.tools import list_ports
 
 SERIAL_PORT = 'COM3'
-BAUD_RATE = 115200
+BAUD_RATE = 
 
 # Global flag for stopping the trial
 stop_trial = False
