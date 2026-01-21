@@ -1,6 +1,8 @@
 // ESP32 Pump Test Code
 // Using same pump configuration as Arduino_code.cpp
 
+#include <Arduino.h>
+
 #define PUMP 4
 #define BOOT_BUTTON 0
 
