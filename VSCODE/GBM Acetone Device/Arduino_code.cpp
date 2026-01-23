@@ -4,6 +4,7 @@
 #define DHTTYPE DHT22
 #define DHTPIN 15
 #define PUMP 4
+#define FLOW_PUMP 17  // Flow pump for promoting flow between chambers
 #define HEATERPIN 16
 
 #define PWM_CHANNEL 0
@@ -33,6 +34,8 @@ void setup() {
 
   pinMode(PUMP, OUTPUT);
   digitalWrite(PUMP, LOW);
+  pinMode(FLOW_PUMP, OUTPUT);
+  digitalWrite(FLOW_PUMP, LOW);
   pinMode(MQ138, INPUT);
 
   // Heater pin with pull-down resistor
@@ -80,6 +83,7 @@ void loop() {
     } else if (cmd == "STOP") {
       phase = READY;
       digitalWrite(PUMP, LOW);
+      digitalWrite(FLOW_PUMP, LOW);
       ledcWrite(HEATERPIN, 0);
       Serial.println("--- STOPPED - Ready for next trial ---");
       return;
@@ -129,6 +133,7 @@ void loop() {
     case WARMUP:
       // One-time warmup on power-up
       digitalWrite(PUMP, HIGH);  // Clean air during warmup
+      digitalWrite(FLOW_PUMP, HIGH);  // Flow pump on during warmup
       ledcWrite(HEATERPIN, 0);   // No heating
       if (elapsed > 60000) {     // 60 seconds
         phase = READY;
@@ -140,12 +145,14 @@ void loop() {
     case READY:
       // Waiting for START TEST command
       digitalWrite(PUMP, LOW);
+      digitalWrite(FLOW_PUMP, LOW);
       ledcWrite(HEATERPIN, 0);
       break;
 
     case BASELINE:
       // Establish baseline with clean air
       digitalWrite(PUMP, HIGH);
+      digitalWrite(FLOW_PUMP, HIGH);  // Flow pump on to promote flow
       ledcWrite(HEATERPIN, 0);
       
       // Check if baseline is stable
@@ -182,6 +189,7 @@ void loop() {
 
     case VAPOR_INJECTION:
       digitalWrite(PUMP, HIGH);
+      digitalWrite(FLOW_PUMP, LOW);  // Flow pump off during vapor injection
       if (elapsed > 5000) {
         phase = ADSORBTION;
         phaseStart = millis();
@@ -191,6 +199,7 @@ void loop() {
 
     case ADSORBTION:
       digitalWrite(PUMP, LOW);
+      digitalWrite(FLOW_PUMP, LOW);  // Flow pump off during adsorption
       if (elapsed > 7000) {
         phase = HEATING;
         phaseStart = millis();
@@ -199,6 +208,7 @@ void loop() {
       break;
 
     case HEATING:
+      digitalWrite(FLOW_PUMP, LOW);  // Flow pump off during heating
       if (temp < targetOutsideTemp - 1) {
         duty = 255;
       } else if (temp < targetOutsideTemp) {
@@ -216,6 +226,7 @@ void loop() {
 
     case MEASUREMENT:
       digitalWrite(PUMP, HIGH);
+      digitalWrite(FLOW_PUMP, HIGH);  // Flow pump on for measurement
       // Keep temperature stable, but don't exceed target
       if (temp < targetOutsideTemp - 1) {
         ledcWrite(HEATERPIN, 200);  // Moderate heating
@@ -234,6 +245,7 @@ void loop() {
     case FLUSH:
       // Flush chamber and wait for recovery
       digitalWrite(PUMP, HIGH);
+      digitalWrite(FLOW_PUMP, HIGH);  // Flow pump on during flush
       ledcWrite(HEATERPIN, 0);
       if (elapsed > 20000) {  // 20 seconds flush
         phase = READY;
