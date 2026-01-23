@@ -12,8 +12,7 @@ import queue
 from queue import Empty
 from serial.tools import list_ports
 
-SERIAL_PORT = 'COM3'
-BAUD_RATE = 115000
+BAUD_RATE = 115200
 
 # Global flag for stopping the trial
 stop_trial = False
@@ -31,11 +30,33 @@ def read_input():
 trial_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 csv_file = f"trial_{trial_time}.csv"
 
-print(f"Attempting to connect to {SERIAL_PORT} at {BAUD_RATE} baud...")
-
 # List available ports
 ports = [port.device for port in list_ports.comports()]
 print(f"Available serial ports: {ports if ports else 'None found'}")
+
+# Try to auto-detect ESP32 device or allow manual input
+SERIAL_PORT = None
+if ports:
+    # Look for common ESP32/Arduino identifiers
+    for port in ports:
+        if any(identifier in port.lower() for identifier in ['usb', 'ttyusb', 'ttyacm', 'esp32', 'ch340', 'ftdi']):
+            SERIAL_PORT = port
+            break
+    # If no specific identifier found, ask user
+    if not SERIAL_PORT:
+        print("\nNo USB device detected automatically.")
+        print(f"Available ports: {ports}")
+        manual_port = input("Enter the port name (e.g., /dev/ttyUSB0 or COM4) or press Enter to use first port: ").strip()
+        SERIAL_PORT = manual_port if manual_port else ports[0]
+else:
+    print("\nNo serial ports found!")
+    manual_port = input("Enter the port name manually (e.g., /dev/ttyUSB0 or COM4): ").strip()
+    if not manual_port:
+        print("No port specified. Exiting.")
+        sys.exit(1)
+    SERIAL_PORT = manual_port
+
+print(f"Attempting to connect to {SERIAL_PORT} at {BAUD_RATE} baud...")
 
 try:
     print("Opening serial port (Ctrl+C to cancel)...")
@@ -46,23 +67,8 @@ except KeyboardInterrupt:
     sys.exit()
 except Exception as e:
     print(f"Error opening serial port {SERIAL_PORT}: {e}")
-    if ports:
-        print(f"Available ports: {ports}")
-        port_choice = input("Enter the correct COM port (e.g., COM4) or press Enter to skip: ").strip().upper()
-        if port_choice:
-            try:
-                ser = serial.Serial(port_choice, BAUD_RATE, timeout=1)
-                print(f"Connected to {port_choice}")
-            except Exception as e2:
-                print(f"Failed to connect to {port_choice}: {e2}")
-                input("Press Enter to exit…")
-                sys.exit()
-        else:
-            input("Press Enter to exit…")
-            sys.exit()
-    else:
-        input("Press Enter to exit…")
-        sys.exit()
+    print(f"Available ports: {ports}")
+    sys.exit(1)
 
 print("Waiting 2 seconds...")
 time.sleep(2)
