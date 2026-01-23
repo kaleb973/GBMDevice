@@ -34,6 +34,14 @@ csv_file = f"trial_{trial_time}.csv"
 ports = [port.device for port in list_ports.comports()]
 print(f"Available serial ports: {ports if ports else 'None found'}")
 
+# Check if running in remote environment
+import os
+is_remote = os.path.exists('/.dockerenv') or os.path.exists('/run/.containerenv')
+if is_remote and not ports:
+    print("\n⚠️  WARNING: Running in remote environment but no USB ports detected!")
+    print("   Make sure your devcontainer has USB device mapping configured.")
+    print("   See .devcontainer/devcontainer.json for USB passthrough setup.\n")
+
 # Try to auto-detect ESP32 device or allow manual input
 SERIAL_PORT = None
 if ports:
@@ -50,7 +58,14 @@ if ports:
         SERIAL_PORT = manual_port if manual_port else ports[0]
 else:
     print("\nNo serial ports found!")
-    manual_port = input("Enter the port name manually (e.g., /dev/ttyUSB0 or COM4): ").strip()
+    if is_remote:
+        print("💡 TROUBLESHOOTING FOR REMOTE CODESPACE:")
+        print("   1. Verify device is connected to your host machine")
+        print("   2. Rebuild container with USB support:")
+        print("      - Press Ctrl+Shift+P and run 'Rebuild Container'")
+        print("   3. OR manually connect: docker run --device /dev/ttyUSB0:/dev/ttyUSB0")
+        print("   4. Check host USB permissions: lsusb")
+    manual_port = input("Enter the port name manually (e.g., /dev/ttyUSB0, /dev/ttyACM0, or COM4): ").strip()
     if not manual_port:
         print("No port specified. Exiting.")
         sys.exit(1)
@@ -61,12 +76,28 @@ print(f"Attempting to connect to {SERIAL_PORT} at {BAUD_RATE} baud...")
 try:
     print("Opening serial port (Ctrl+C to cancel)...")
     ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-    print(f"Successfully connected to {SERIAL_PORT}")
+    print(f"✓ Successfully connected to {SERIAL_PORT}")
 except KeyboardInterrupt:
     print("\nCancelled by user")
     sys.exit()
+except FileNotFoundError:
+    print(f"❌ Error: Port {SERIAL_PORT} not found!")
+    if is_remote:
+        print("\n💡 FOR REMOTE CODESPACE:")
+        print("   Your device is NOT visible in the container.")
+        print("   Steps to fix:")
+        print("   1. Rebuild container: Ctrl+Shift+P → 'Rebuild Container'")
+        print("   2. Reconnect your device to the host after rebuilding")
+        print("   3. Check devcontainer.json has USB mount configuration")
+    print(f"\nAvailable ports: {ports}")
+    sys.exit(1)
+except PermissionError:
+    print(f"❌ Error: Permission denied accessing {SERIAL_PORT}")
+    if is_remote:
+        print("   Try: sudo usermod -a -G dialout $USER")
+    sys.exit(1)
 except Exception as e:
-    print(f"Error opening serial port {SERIAL_PORT}: {e}")
+    print(f"❌ Error opening serial port {SERIAL_PORT}: {e}")
     print(f"Available ports: {ports}")
     sys.exit(1)
 

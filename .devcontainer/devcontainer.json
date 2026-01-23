@@ -1,0 +1,34 @@
+{
+  "name": "GBM Acetone Device",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "pip install -q pyserial matplotlib numpy pandas",
+  
+  "mounts": [
+    "type=bind,source=/dev/bus/usb,target=/dev/bus/usb,readonly",
+    "type=bind,source=/run/udev,target=/run/udev,readonly"
+  ],
+  "runArgs": [
+    "--device-cgroup-rule=a 189:* rmw",
+    "--group-add=dialout"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "python.formatting.provider": "black"
+      }
+    }
+  }
+}
