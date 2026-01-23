@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 #define PUMP 4
+#define FLOW_PUMP 17
 #define BOOT_BUTTON 0
 
 bool pumpState = false;
@@ -15,10 +16,13 @@ void setup() {
   pinMode(PUMP, OUTPUT);
   digitalWrite(PUMP, LOW);
   
+  pinMode(FLOW_PUMP, OUTPUT);
+  digitalWrite(FLOW_PUMP, LOW);
+  
   pinMode(BOOT_BUTTON, INPUT_PULLUP);
   
   Serial.println("Pump Test Ready");
-  Serial.println("Press BOOT button to toggle pump");
+  Serial.println("Press BOOT button to toggle both pumps");
 }
 
 void loop() {
@@ -29,11 +33,12 @@ void loop() {
     buttonPressed = true;
     delay(50);  // Debounce
     
-    // Toggle pump
+    // Toggle both pumps
     pumpState = !pumpState;
     digitalWrite(PUMP, pumpState ? HIGH : LOW);
+    digitalWrite(FLOW_PUMP, pumpState ? HIGH : LOW);
     
-    Serial.print("Pump: ");
+    Serial.print("Pumps: ");
     Serial.println(pumpState ? "ON" : "OFF");
   }
   
