@@ -138,7 +138,7 @@ ax2.tick_params(axis='y', labelcolor="#1f77b4", labelsize=11)
 # MQ138 axis (green)
 ax3 = ax1.twinx()
 ax3.spines['right'].set_position(('outward', 70))
-ax3.set_ylabel("MQ138 Sensor (ppm)", color="#2ca02c", fontsize=13, fontweight='bold')
+ax3.set_ylabel("MQ138 Sensor Output (a.u.)", color="#2ca02c", fontsize=13, fontweight='bold')
 line_mq, = ax3.plot([], [], color="#2ca02c", linewidth=2.5, label="MQ138 Gas Sensor", marker='^', markersize=3, markevery=10)
 ax3.tick_params(axis='y', labelcolor="#2ca02c", labelsize=11)
 
@@ -154,7 +154,7 @@ times, temps, hums, mq = [], [], [], []
 
 csvfile = open(csv_file, 'w', newline='')
 csvwriter = csv.writer(csvfile)
-csvwriter.writerow(['Time(s)', 'Temperature(C)', 'Humidity(%)', 'MQ138'])
+csvwriter.writerow(['Time(s)', 'Temperature(C)', 'Humidity(%)', 'MQ138(a.u.)'])
 
 current_phase = "WAITING"
 baseline_value = 0
@@ -288,15 +288,15 @@ def update(frame):
                 f"=== PHASE: {current_phase} ===\n"
                 f"Temp: {temps[-1]:.2f}°C\n"
                 f"Humidity: {hums[-1]:.2f}%\n"
-                f"MQ138 (corrected): {mq[-1]} ppm\n"
-                f"MQ138 (raw): {raw_mq} ppm\n"
+                f"MQ138 (corrected): {mq[-1]} a.u.\n"
+                f"MQ138 (raw): {raw_mq} a.u.\n"
                 f"Baseline: {baseline_status}\n"
                 f"Elapsed: {elapsed_time:.1f}s\n"
                 f"-------------------\n"
                 f"Min/Max (corrected):\n"
                 f"T: {min(temps):.1f}°C / {max(temps):.1f}°C\n"
                 f"H: {min(hums):.1f}% / {max(hums):.1f}%\n"
-                f"MQ: {min(mq)} / {max(mq)} ppm"
+                f"MQ: {min(mq)} / {max(mq)} a.u."
             )
 
         return line_temp, line_hum, line_mq, legend_text
