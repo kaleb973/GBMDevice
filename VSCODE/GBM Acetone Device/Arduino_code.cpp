@@ -14,7 +14,7 @@
 DHT dht(DHTPIN, DHTTYPE);
 float targetOutsideTemp = 38.0;  // max temperature
 
-enum Phase { WARMUP, WAITING, BASELINE, VAPOR_INJECTION, ADSORBTION, HEATING, MEASUREMENT, FLUSH, READY };
+enum Phase { WARMUP, READY, BASELINE, WAITING_FOR_INJECT, VAPOR_INJECTION, ADSORBTION, HEATING, MEASUREMENT, FLUSH };
 Phase phase = WARMUP;
 bool isPaused = false;
 
@@ -25,8 +25,8 @@ unsigned long pauseStart = 0;
 int baselineReading = 0;
 int lastMQ = 0;
 unsigned long stableStartTime = 0;
-const int STABLE_THRESHOLD = 3;     // MQ change less than this = stable (tighter)
-const unsigned long STABLE_DURATION = 10000;  // Must be stable for 10 seconds (longer)
+const int STABLE_THRESHOLD = 20;     // MQ change less than this = stable (tighter)
+const unsigned long STABLE_DURATION = 2500;  // Must be stable for 10 seconds (longer)
 bool baselineReady = false;  // True when baseline is established and ready for injection
 
 void setup() {
@@ -77,12 +77,12 @@ void loop() {
         Serial.println("System not ready. Wait for warmup to complete.");
       }
     } else if (cmd == "INJECT") {
-      if (phase == BASELINE && baselineReady) {
+      if ((phase == BASELINE || phase == WAITING_FOR_INJECT) && baselineReady) {
         phase = VAPOR_INJECTION;
         phaseStart = millis();
         Serial.println("--- Phase: VAPOR_INJECTION ---");
-      } else if (phase != BASELINE) {
-        Serial.println("INJECT only works during BASELINE phase.");
+      } else if (phase != BASELINE && phase != WAITING_FOR_INJECT) {
+        Serial.println("INJECT only works during BASELINE or WAITING_FOR_INJECT phase.");
       } else {
         Serial.println("Baseline not ready yet. Wait for stable reading.");
       }
@@ -108,14 +108,14 @@ void loop() {
   String phaseStr;
   switch (phase) {
     case WARMUP: phaseStr = "WARMUP"; break;
-    case WAITING: phaseStr = "WAITING"; break;
+    case READY: phaseStr = "READY"; break;
     case BASELINE: phaseStr = "BASELINE"; break;
+    case WAITING_FOR_INJECT: phaseStr = "WAITING_FOR_INJECT"; break;
     case VAPOR_INJECTION: phaseStr = "VAPOR_INJECTION"; break;
     case ADSORBTION: phaseStr = "ADSORBTION"; break;
     case HEATING: phaseStr = "HEATING"; break;
     case MEASUREMENT: phaseStr = "MEASUREMENT"; break;
     case FLUSH: phaseStr = "FLUSH"; break;
-    case READY: phaseStr = "READY"; break;
   }
 
   // Output corrected value after baseline is established
@@ -184,6 +184,8 @@ void loop() {
           if (!baselineReady) {
             baselineReading = mqvalue;
             baselineReady = true;
+            phase = WAITING_FOR_INJECT;
+            phaseStart = millis();
             Serial.print("Baseline established: ");
             Serial.println(baselineReading);
             Serial.println("Type 'INJECT' to start vapor injection phase.");
@@ -198,6 +200,22 @@ void loop() {
         phase = VAPOR_INJECTION;
         phaseStart = millis();
         Serial.println("--- Phase: VAPOR_INJECTION (auto-start timeout) ---");
+      }
+      
+      lastMQ = mqvalue;
+      break;
+
+    case WAITING_FOR_INJECT:
+      // Waiting for INJECT command - turn pumps off to avoid drift
+      digitalWrite(PUMP, LOW);
+      digitalWrite(FLOW_PUMP, LOW);
+      ledcWrite(HEATERPIN, 0);
+      
+      // Auto-inject after 45 seconds of waiting
+      if (elapsed >= 45000) {
+        phase = VAPOR_INJECTION;
+        phaseStart = millis();
+        Serial.println("--- Phase: VAPOR_INJECTION (waiting timeout) ---");
       }
       
       lastMQ = mqvalue;

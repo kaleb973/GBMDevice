@@ -115,6 +115,7 @@ ax2.spines['right'].set_color('#1f77b4'); ax2.spines['right'].set_linewidth(2)
 ax3.spines['right'].set_color('#2ca02c'); ax3.spines['right'].set_linewidth(2)
 
 times, temps, hums, mq = [], [], [], []
+phase_transitions = []  # Store (time, phase_name) for markers
 
 csvfile = open(csv_file, 'w', newline='')
 csvwriter = csv.writer(csvfile)
@@ -125,6 +126,12 @@ current_phase = "WAITING"
 baseline_value = 0
 baseline_established = False
 
+# Pump compensation tracking
+pump_state = {"main": False, "flow": False}  # Track pump states
+pump_offset = 0  # Offset to apply when pumps change
+LAST_MQ_BEFORE_PUMP = None  # MQ value just before pump change
+PUMP_COMPENSATION = True  # Enable/disable compensation
+
 legend_text = ax1.text(
     0.02, 0.98, "", transform=ax1.transAxes, fontsize=10, fontweight='bold',
     verticalalignment='top', horizontalalignment='left',
@@ -133,6 +140,7 @@ legend_text = ax1.text(
 
 def update(frame):
     global stop_trial, current_phase, baseline_value, baseline_established
+    global pump_state, pump_offset, LAST_MQ_BEFORE_PUMP
 
     if fig.canvas.toolbar and fig.canvas.toolbar.mode:
         return line_temp, line_hum, line_mq, legend_text
@@ -191,15 +199,82 @@ def update(frame):
             mqv = int(mqv)  # already corrected (or raw before baseline in your Arduino)
             new_phase = phase.strip()
 
+            # Track phase transitions for markers
+            if new_phase != current_phase:
+                phase_transitions.append((t, new_phase))
+                print(f"Phase transition detected: {current_phase} -> {new_phase} at {t:.1f}s")
+                
+                # Reset compensation when leaving BASELINE phase (transition to real test)
+                if current_phase == "BASELINE" and new_phase == "WAITING_FOR_INJECT":
+                    pump_offset = 0
+                    LAST_MQ_BEFORE_PUMP = None
+                    pump_state = {"main": False, "flow": False}
+                    print("Transition to WAITING_FOR_INJECT - resetting pump compensation")
+            
             current_phase = new_phase
+            
+            # Determine pump states based on phase (from Arduino code)
+            new_pump_state = {"main": False, "flow": False}
+            if new_phase in ["WARMUP", "BASELINE", "FLUSH"]:
+                new_pump_state["main"] = True
+                new_pump_state["flow"] = True
+            elif new_phase == "VAPOR_INJECTION":
+                new_pump_state["main"] = True
+                new_pump_state["flow"] = False
+            elif new_phase == "MEASUREMENT":
+                new_pump_state["main"] = True
+                new_pump_state["flow"] = True
+            # WAITING_FOR_INJECT, ADSORBTION, HEATING, READY: both pumps off
+            
+            # Only apply compensation AFTER baseline phase (skip during BASELINE and WAITING_FOR_INJECT)
+            if PUMP_COMPENSATION and new_phase not in ["BASELINE", "WAITING_FOR_INJECT"] and mq:
+                pump_changed = (new_pump_state["main"] != pump_state["main"] or 
+                               new_pump_state["flow"] != pump_state["flow"])
+                
+                if pump_changed and len(mq) > 0:
+                    # Pumps ON (power draw) suppress MQ reading -> subtract offset
+                    # Pumps OFF (no power draw) let MQ spike -> add offset
+                    # So: if pumps turning ON, reduce future readings by adding negative offset
+                    #     if pumps turning OFF, readings will spike, so subtract that spike
+                    
+                    pump_effect = 0
+                    pumps_turning_on = False
+                    
+                    if new_pump_state["main"] and not pump_state["main"]:
+                        pumps_turning_on = True
+                        pump_effect -= 80  # Main pump turning ON suppresses reading
+                    elif not new_pump_state["main"] and pump_state["main"]:
+                        pump_effect += 80  # Main pump turning OFF causes spike
+                    
+                    if new_pump_state["flow"] and not pump_state["flow"]:
+                        pumps_turning_on = True
+                        pump_effect -= 60  # Flow pump turning ON suppresses reading
+                    elif not new_pump_state["flow"] and pump_state["flow"]:
+                        pump_effect += 60  # Flow pump turning OFF causes spike
+                    
+                    if pump_effect != 0:
+                        pump_offset += pump_effect
+                        print(f"Pump change detected: Compensation applied: {pump_effect:+d} (total offset: {pump_offset:+d})")
+                    
+                    LAST_MQ_BEFORE_PUMP = mqv
+                    pump_state = new_pump_state.copy()
+                else:
+                    LAST_MQ_BEFORE_PUMP = mqv
+                    pump_state = new_pump_state.copy()
+            elif new_phase in ["BASELINE", "WAITING_FOR_INJECT"]:
+                # During BASELINE and WAITING_FOR_INJECT, track pump state but don't apply compensation
+                pump_state = new_pump_state.copy()
+            
+            # Apply pump compensation to MQ value (only after baseline and waiting)
+            mqv_compensated = mqv - pump_offset if (PUMP_COMPENSATION and new_phase not in ["BASELINE", "WAITING_FOR_INJECT"]) else mqv
 
             times.append(t)
             temps.append(temp)
             hums.append(hum)
-            mq.append(mqv)
+            mq.append(mqv_compensated)
 
             # --- IMPORTANT: save phase to CSV ---
-            csvwriter.writerow([t, temp, hum, mqv, new_phase])
+            csvwriter.writerow([t, temp, hum, mqv_compensated, new_phase])
         except:
             continue
 
@@ -207,6 +282,36 @@ def update(frame):
     line_temp.set_data(times, temps)
     line_hum.set_data(times, hums)
     line_mq.set_data(times, mq)
+    
+    # Draw phase transition markers
+    # Clear old markers and redraw (simple approach)
+    for line in ax1.get_lines():
+        if hasattr(line, '_phase_marker'):
+            line.remove()
+    
+    # Also clear old text annotations (labels)
+    for text in ax1.texts[:]:
+        if hasattr(text, '_phase_label'):
+            text.remove()
+    
+    if times and phase_transitions:
+        xlim = ax1.get_xlim()
+        for t_phase, phase_name in phase_transitions:
+            if times and xlim[0] <= t_phase <= xlim[1]:
+                # Draw vertical line for phase transition
+                phase_line = ax1.axvline(t_phase, color='gray', linestyle='--', 
+                                        linewidth=1.5, alpha=0.7, zorder=1)
+                phase_line._phase_marker = True  # Tag so we can remove later
+                
+                # Add phase label
+                ylim = ax1.get_ylim()
+                y_pos = ylim[0] + (ylim[1] - ylim[0]) * 0.95
+                phase_text = ax1.text(t_phase, y_pos, phase_name, rotation=90, 
+                        verticalalignment='top', horizontalalignment='right',
+                        fontsize=8, color='gray', alpha=0.8,
+                        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', 
+                                 edgecolor='gray', alpha=0.6))
+                phase_text._phase_label = True  # Tag so we can remove later
 
     if times:
         ax1.set_xlim(max(0, times[-1]-60), times[-1]+5)
@@ -228,6 +333,8 @@ def update(frame):
 
     if temps and hums and mq:
         elapsed_time = times[-1] if times else 0
+        pump_status = "🟢" if pump_state["main"] else "🔴"
+        flow_status = "🟢" if pump_state["flow"] else "🔴"
         legend_text.set_text(
             f"CONC: {conc} | TRIAL: {trial_label}\n"
             f"PHASE: {current_phase}\n"
@@ -235,6 +342,7 @@ def update(frame):
             f"Humidity: {hums[-1]:.2f}%\n"
             f"MQ138: {mq[-1]} a.u.\n"
             f"Baseline set: {'YES' if baseline_established else 'NO'}\n"
+            f"Pump:{pump_status} Flow:{flow_status} | Offset: {pump_offset:+d}\n"
             f"Elapsed: {elapsed_time:.1f}s"
         )
 
