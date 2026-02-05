@@ -25,8 +25,8 @@ unsigned long pauseStart = 0;
 int baselineReading = 0;
 int lastMQ = 0;
 unsigned long stableStartTime = 0;
-const int STABLE_THRESHOLD = 5;     // MQ change less than this = stable
-const unsigned long STABLE_DURATION = 5000;  // Must be stable for 5 seconds
+const int STABLE_THRESHOLD = 3;     // MQ change less than this = stable (tighter)
+const unsigned long STABLE_DURATION = 10000;  // Must be stable for 10 seconds (longer)
 
 void setup() {
   Serial.begin(115200);
@@ -67,6 +67,8 @@ void loop() {
         phase = BASELINE;
         phaseStart = millis();
         stableStartTime = 0;
+        baselineReading = 0;  // Reset baseline for new trial
+        lastMQ = 0;           // Reset last MQ reading
         isPaused = false;
         Serial.println("--- Starting BASELINE phase ---");
       } else {
@@ -104,19 +106,25 @@ void loop() {
     case READY: phaseStr = "READY"; break;
   }
 
-  // Output baseline-corrected value during trial
-  int correctedMQ = mqvalue - baselineReading;
+  // Output corrected value after baseline is established
+  // Once baseline is set, keep using it for consistency (no jumps in graph)
+  int outputValue;
+  if (baselineReading == 0) {
+    outputValue = mqvalue;  // Raw value if no baseline established yet
+  } else {
+    outputValue = mqvalue - baselineReading;  // Always use baseline correction once set
+  }
   
   Serial.print(t); Serial.print(",");
   Serial.print(temp); Serial.print(",");
   Serial.print(hum); Serial.print(",");
-  Serial.print(correctedMQ); Serial.print(",");
+  Serial.print(outputValue); Serial.print(",");
   Serial.println(phaseStr);
 
   Serial.print("Time: "); Serial.print(t/1000.0, 1);
   Serial.print(" s | Temp: "); Serial.print(temp, 1);
   Serial.print("°C | Hum: "); Serial.print(hum, 1);
-  Serial.print("% | MQ138: "); Serial.print(correctedMQ);
+  Serial.print("% | MQ138: "); Serial.print(mqvalue);
   Serial.print(" | Phase: "); Serial.println(phaseStr);
 
   // Don't run phase logic if paused
@@ -161,7 +169,7 @@ void loop() {
           stableStartTime = millis();
         } else if (millis() - stableStartTime >= STABLE_DURATION) {
           // Stable for required duration
-          if (elapsed >= 30000) {  // Minimum 30 seconds
+          if (elapsed >= 45000) {  // Minimum 45 seconds (increased from 30)
             baselineReading = mqvalue;
             phase = VAPOR_INJECTION;
             phaseStart = millis();
@@ -174,8 +182,8 @@ void loop() {
         stableStartTime = 0;  // Reset if unstable
       }
       
-      // Force proceed at 60 seconds max
-      if (elapsed >= 60000) {
+      // Force proceed at 90 seconds max (increased from 60)
+      if (elapsed >= 90000) {
         baselineReading = mqvalue;
         phase = VAPOR_INJECTION;
         phaseStart = millis();
