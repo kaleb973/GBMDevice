@@ -109,7 +109,7 @@ input_thread = threading.Thread(target=read_input, daemon=True)
 input_thread.start()
 
 print("=== Connected to GBM Acetone Device ===")
-print("Commands: Type 'START TEST' to begin trial | 'STOP' to end | 'PAUSE'/'RESUME' during trial")
+print("Commands: Type 'START TEST' to begin trial | 'INJECT' for vapor injection | 'STOP' to end | 'PAUSE'/'RESUME' during trial")
 print(f"Data will be saved to: {csv_file}")
 print("Opening graph window...")
 
@@ -194,6 +194,9 @@ def update(frame):
             elif command == "START TEST":
                 print("Master: Starting trial...")
                 ser.write(b'START TEST\n')
+            elif command == "INJECT":
+                print("Master: Injecting vapor...")
+                ser.write(b'INJECT\n')
             elif command == "PAUSE":
                 print("Master: Trial paused. Type 'RESUME' to continue or 'STOP' to end.")
                 ser.write(b'PAUSE\n')

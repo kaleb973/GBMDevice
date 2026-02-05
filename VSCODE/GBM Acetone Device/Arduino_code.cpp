@@ -27,6 +27,7 @@ int lastMQ = 0;
 unsigned long stableStartTime = 0;
 const int STABLE_THRESHOLD = 3;     // MQ change less than this = stable (tighter)
 const unsigned long STABLE_DURATION = 10000;  // Must be stable for 10 seconds (longer)
+bool baselineReady = false;  // True when baseline is established and ready for injection
 
 void setup() {
   Serial.begin(115200);
@@ -69,10 +70,21 @@ void loop() {
         stableStartTime = 0;
         baselineReading = 0;  // Reset baseline for new trial
         lastMQ = 0;           // Reset last MQ reading
+        baselineReady = false; // Reset injection flag
         isPaused = false;
         Serial.println("--- Starting BASELINE phase ---");
       } else {
         Serial.println("System not ready. Wait for warmup to complete.");
+      }
+    } else if (cmd == "INJECT") {
+      if (phase == BASELINE && baselineReady) {
+        phase = VAPOR_INJECTION;
+        phaseStart = millis();
+        Serial.println("--- Phase: VAPOR_INJECTION ---");
+      } else if (phase != BASELINE) {
+        Serial.println("INJECT only works during BASELINE phase.");
+      } else {
+        Serial.println("Baseline not ready yet. Wait for stable reading.");
       }
     } else if (cmd == "PAUSE") {
       isPaused = true;
@@ -167,29 +179,25 @@ void loop() {
       if (abs(mqvalue - lastMQ) <= STABLE_THRESHOLD) {
         if (stableStartTime == 0) {
           stableStartTime = millis();
-        } else if (millis() - stableStartTime >= STABLE_DURATION) {
-          // Stable for required duration
-          if (elapsed >= 45000) {  // Minimum 45 seconds (increased from 30)
+        } else if (millis() - stableStartTime >= STABLE_DURATION && elapsed >= 45000) {
+          // Stable for required duration and minimum time reached
+          if (!baselineReady) {
             baselineReading = mqvalue;
-            phase = VAPOR_INJECTION;
-            phaseStart = millis();
+            baselineReady = true;
             Serial.print("Baseline established: ");
             Serial.println(baselineReading);
-            Serial.println("--- Phase: VAPOR_INJECTION ---");
+            Serial.println("Type 'INJECT' to start vapor injection phase.");
           }
         }
       } else {
         stableStartTime = 0;  // Reset if unstable
       }
       
-      // Force proceed at 90 seconds max (increased from 60)
-      if (elapsed >= 90000) {
-        baselineReading = mqvalue;
+      // Force proceed at 90 seconds max (user must type INJECT or auto-inject at timeout)
+      if (elapsed >= 90000 && baselineReady) {
         phase = VAPOR_INJECTION;
         phaseStart = millis();
-        Serial.print("Baseline (max time): ");
-        Serial.println(baselineReading);
-        Serial.println("--- Phase: VAPOR_INJECTION ---");
+        Serial.println("--- Phase: VAPOR_INJECTION (auto-start timeout) ---");
       }
       
       lastMQ = mqvalue;
