@@ -4,5 +4,10 @@
             "approve": true,
             "matchCommandLine": true
         }
+    },
+    "python.defaultInterpreterPath": "py",
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.python",
+        "editor.formatOnSave": true
     }
 }
