@@ -2,7 +2,7 @@ import serial
 import sys
 import time
 import matplotlib
-matplotlib.use('TkAgg')  # keep what already works for you
+matplotlib.use('TkAgg')  
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import csv
