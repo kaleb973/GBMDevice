@@ -24,7 +24,7 @@ const unsigned long WAIT_INJECT_MAX_MS = 45000;
 const unsigned long STABLE_DURATION    = 10000;
 const int STABLE_THRESHOLD             = 20;
 const unsigned long MIN_HEATING_MS     = 20000;
-const unsigned long MEASUREMENT_MS     = 10000;
+const unsigned long MEASUREMENT_MS     = 30000;
 const unsigned long FLUSH_MS           = 20000;
 
 // ---------- PHASES ----------

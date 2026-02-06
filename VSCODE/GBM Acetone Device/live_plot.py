@@ -50,13 +50,25 @@ ax2 = ax1.twinx()
 ax3 = ax1.twinx()
 ax3.spines['right'].set_position(('outward', 70))
 
-line_temp, = ax1.plot([], [], label="Temp (C)")
-line_hum,  = ax2.plot([], [], label="Humidity (%)")
-line_mq,   = ax3.plot([], [], label="MQ138")
+line_temp, = ax1.plot([], [], label="Temp (C)", color='#d62728', linewidth=2)
+line_hum,  = ax2.plot([], [], label="Humidity (%)", color='#1f77b4', linewidth=2)
+line_mq,   = ax3.plot([], [], label="MQ138", color='#2ca02c', linewidth=2)
+
+ax1.set_xlabel("Time (s)", fontsize=12)
+ax1.set_ylabel("Temperature (°C)", fontsize=12, color='#d62728')
+ax1.tick_params(axis='y', labelcolor='#d62728')
+
+ax2.set_ylabel("Humidity (%)", fontsize=12, color='#1f77b4')
+ax2.tick_params(axis='y', labelcolor='#1f77b4')
+
+ax3.set_ylabel("MQ138 (a.u.)", fontsize=12, color='#2ca02c')
+ax3.tick_params(axis='y', labelcolor='#2ca02c')
 
 times, temps, hums, mq = [], [], [], []
 phase_lines = []
 phase_texts = []
+test_start_time = None
+elapsed_text = None
 
 csvfile = open(csv_file, 'w', newline='')
 csvwriter = csv.writer(csvfile)
@@ -72,7 +84,7 @@ def add_phase_marker(t, phase):
     phase_texts.append(text)
 
 def update(frame):
-    global stop_trial, current_phase
+    global stop_trial, current_phase, test_start_time, elapsed_text
 
     # ---- Commands ----
     while not input_queue.empty():
@@ -104,11 +116,17 @@ def update(frame):
         if current_phase != phase:
             current_phase = phase
             add_phase_marker(t, phase)
+            phase_msg = f"PHASE_SWITCH: {phase} at {t:.2f}s"
+            ser.write((phase_msg + "\n").encode())
+            print(f"[{t:.2f}s] Phase changed to: {phase}")
 
         times.append(t)
         temps.append(temp)
         hums.append(hum)
         mq.append(mqv)
+
+        if test_start_time is None:
+            test_start_time = t
 
         csvwriter.writerow([t, temp, hum, mqv, phase])
 
@@ -132,6 +150,24 @@ def update(frame):
     for txt in phase_texts:
         x, _ = txt.get_position()
         txt.set_position((x, y_top))
+
+    # Update info box with legend and elapsed time
+    if times and test_start_time is not None:
+        elapsed = times[-1] - test_start_time
+        curr_temp = temps[-1] if temps else 0
+        curr_hum = hums[-1] if hums else 0
+        curr_mq = mq[-1] if mq else 0
+        phase_display = current_phase if current_phase else "N/A"
+        info_text = f"Temp: {curr_temp:.1f}°C\nHumidity: {curr_hum:.1f}%\nMQ138: {curr_mq}\n\nPhase: {phase_display}\nElapsed: {elapsed:.1f}s"
+    else:
+        info_text = f"Temp: --°C\nHumidity: --%\nMQ138: --\n\nPhase: N/A\nElapsed: 0.0s"
+    
+    if elapsed_text is not None:
+        elapsed_text.remove()
+    elapsed_text = ax1.text(0.02, 0.98, info_text,
+                            transform=ax1.transAxes, fontsize=10,
+                            verticalalignment='top',
+                            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.9))
 
 ani = FuncAnimation(fig, update, interval=100, blit=False)
 plt.show()
