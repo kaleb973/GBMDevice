@@ -1,8 +1,8 @@
-#include <DHT.h>
 #include <Arduino.h>
+#include <DHT.h>
 
-// ---------- PINS (ESP32 DEVKIT V1) ----------
-#define MQ138_PIN 34          // ADC1 pin (IMPORTANT)
+// ---------- PINS ----------
+#define MQ138_PIN 34        // ADC1 pin (IMPORTANT)
 #define DHTPIN 15
 #define DHTTYPE DHT22
 #define PUMP 4
@@ -10,7 +10,6 @@
 #define HEATERPIN 16
 
 // ---------- PWM ----------
-#define PWM_CHANNEL 0
 #define PWM_FREQ 5000
 #define PWM_RES 8
 
@@ -18,18 +17,23 @@
 float targetOutsideTemp = 38.0;
 
 // ---------- TIMING ----------
-const unsigned long WARMUP_MS        = 600000;  // 10 min
-const unsigned long BASELINE_MIN_MS  = 45000;   // 45s
-const unsigned long BASELINE_MAX_MS  = 90000;   // 90s
-const unsigned long WAIT_INJECT_MAX_MS = 45000; // 45s
-const unsigned long STABLE_DURATION  = 10000;   // 10s stable
-const int STABLE_THRESHOLD           = 20;      // delta threshold
-const unsigned long MIN_HEATING_MS   = 20000;   // 20s minimum heating
-const unsigned long MEASUREMENT_MS   = 10000;   // 10s
-const unsigned long FLUSH_MS         = 20000;   // 20s
+const unsigned long WARMUP_MS          = 600000;  // 10 min
+const unsigned long BASELINE_MIN_MS    = 45000;
+const unsigned long BASELINE_MAX_MS    = 90000;
+const unsigned long WAIT_INJECT_MAX_MS = 45000;
+const unsigned long STABLE_DURATION    = 10000;
+const int STABLE_THRESHOLD             = 20;
+const unsigned long MIN_HEATING_MS     = 20000;
+const unsigned long MEASUREMENT_MS     = 10000;
+const unsigned long FLUSH_MS           = 20000;
 
 // ---------- PHASES ----------
-enum Phase { WARMUP, READY, BASELINE, WAITING_FOR_INJECT, VAPOR_INJECTION, ADSORBTION, HEATING, MEASUREMENT, FLUSH };
+enum Phase {
+  WARMUP, READY, BASELINE, WAITING_FOR_INJECT,
+  VAPOR_INJECTION, ADSORBTION, HEATING,
+  MEASUREMENT, FLUSH
+};
+
 Phase phase = WARMUP;
 
 DHT dht(DHTPIN, DHTTYPE);
@@ -41,33 +45,14 @@ unsigned long stableStart = 0;
 int baselineReading = 0;
 int lastMQ = 0;
 bool baselineReady = false;
-
 bool extraFlush = false;
 
-// DHT robustness
+// ---------- DHT SAFETY ----------
 float lastTemp = 0;
 float lastHum = 0;
 bool hasDHT = false;
 
-// ---------- PWM COMPAT (handles ESP32 core v2 vs v3) ----------
-static inline void pwmInit() {
-#if defined(ARDUINO_ESP32_VERSION_MAJOR) && (ARDUINO_ESP32_VERSION_MAJOR >= 3)
-  ledcAttach(HEATERPIN, PWM_FREQ, PWM_RES);
-  ledcWrite(HEATERPIN, 0);
-#else
-  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RES);
-  ledcAttachPin(HEATERPIN, PWM_CHANNEL);
-  ledcWrite(PWM_CHANNEL, 0);
-#endif
-}
-static inline void pwmWriteDuty(int duty) {
-#if defined(ARDUINO_ESP32_VERSION_MAJOR) && (ARDUINO_ESP32_VERSION_MAJOR >= 3)
-  ledcWrite(HEATERPIN, duty);
-#else
-  ledcWrite(PWM_CHANNEL, duty);
-#endif
-}
-
+// ---------- HELPERS ----------
 void setPumps(bool mainOn, bool flowOn) {
   digitalWrite(PUMP, mainOn ? HIGH : LOW);
   digitalWrite(FLOW_PUMP, flowOn ? HIGH : LOW);
@@ -76,51 +61,40 @@ void setPumps(bool mainOn, bool flowOn) {
 void handleCommand(String cmd) {
   cmd.trim();
 
-  if (cmd == "START TEST") {
-    if (phase == READY) {
-      phase = BASELINE;
-      phaseStart = millis();
-      stableStart = 0;
-      baselineReading = 0;
-      baselineReady = false;
-      lastMQ = 0;
-      extraFlush = false;
-    }
-    return;
+  if (cmd == "START TEST" && phase == READY) {
+    phase = BASELINE;
+    phaseStart = millis();
+    stableStart = 0;
+    baselineReading = 0;
+    baselineReady = false;
+    lastMQ = 0;
+    extraFlush = false;
   }
 
-  if (cmd == "INJECT") {
-    if (baselineReady && (phase == BASELINE || phase == WAITING_FOR_INJECT)) {
-      phase = VAPOR_INJECTION;
-      phaseStart = millis();
-    }
-    return;
+  else if (cmd == "INJECT" && baselineReady &&
+          (phase == BASELINE || phase == WAITING_FOR_INJECT)) {
+    phase = VAPOR_INJECTION;
+    phaseStart = millis();
   }
 
-  if (cmd == "STOP") {
+  else if (cmd == "STOP") {
     phase = READY;
     extraFlush = false;
     setPumps(false, false);
-    pwmWriteDuty(0);
-    return;
+    ledcWrite(HEATERPIN, 0);
   }
 
-  if (cmd == "FLUSH MORE") {
-    if (phase == READY) extraFlush = true;
-    return;
+  else if (cmd == "FLUSH MORE" && phase == READY) {
+    extraFlush = true;
   }
 
-  if (cmd == "STOP FLUSH") {
-    if (phase == READY) extraFlush = false;
-    return;
+  else if (cmd == "STOP FLUSH" && phase == READY) {
+    extraFlush = false;
   }
 
-  if (cmd == "SKIP WARMUP") {
-    if (phase == WARMUP) {
-      phase = READY;
-      phaseStart = millis();
-    }
-    return;
+  else if (cmd == "SKIP WARMUP" && phase == WARMUP) {
+    phase = READY;
+    phaseStart = millis();
   }
 }
 
@@ -134,19 +108,20 @@ void setup() {
 
   digitalWrite(PUMP, LOW);
   digitalWrite(FLOW_PUMP, LOW);
-  digitalWrite(HEATERPIN, LOW);
 
-  pwmInit();
+  // PWM (ESP32 core v3.x)
+  ledcAttach(HEATERPIN, PWM_FREQ, PWM_RES);
+  ledcWrite(HEATERPIN, 0);
 
-  // ADC config (helps stability)
-  analogReadResolution(12);        // 0..4095
-  analogSetAttenuation(ADC_11db);  // wider input range
+  // ADC setup
+  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db);
 
   phaseStart = millis();
 }
 
 void loop() {
-  // Read DHT safely
+  // ----- Read DHT safely -----
   float temp = dht.readTemperature();
   float hum  = dht.readHumidity();
 
@@ -163,16 +138,14 @@ void loop() {
   int mqRaw = analogRead(MQ138_PIN);
   unsigned long now = millis();
 
-  // Commands
+  // ----- Commands -----
   if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    handleCommand(cmd);
+    handleCommand(Serial.readStringUntil('\n'));
   }
 
-  // Baseline corrected output (raw until baseline set)
+  // ----- Output CSV ONLY -----
   int outMQ = (baselineReading == 0) ? mqRaw : (mqRaw - baselineReading);
 
-  // CSV ONLY: t,temp,hum,mq,phase
   Serial.print(now); Serial.print(",");
   Serial.print(temp); Serial.print(",");
   Serial.print(hum); Serial.print(",");
@@ -192,11 +165,12 @@ void loop() {
 
   unsigned long elapsed = now - phaseStart;
 
-  // Phase logic
+  // ----- Phase logic -----
   switch (phase) {
+
     case WARMUP:
       setPumps(true, true);
-      pwmWriteDuty(0);
+      ledcWrite(HEATERPIN, 0);
       if (elapsed >= WARMUP_MS) {
         phase = READY;
         phaseStart = now;
@@ -204,24 +178,23 @@ void loop() {
       break;
 
     case READY:
-      pwmWriteDuty(0);
+      ledcWrite(HEATERPIN, 0);
       if (extraFlush) setPumps(true, true);
       else setPumps(false, false);
       break;
 
     case BASELINE:
       setPumps(true, true);
-      pwmWriteDuty(0);
+      ledcWrite(HEATERPIN, 0);
 
       if (abs(mqRaw - lastMQ) <= STABLE_THRESHOLD) {
         if (stableStart == 0) stableStart = now;
-        else {
-          if ((now - stableStart >= STABLE_DURATION) && (elapsed >= BASELINE_MIN_MS) && !baselineReady) {
-            baselineReading = mqRaw;
-            baselineReady = true;
-            phase = WAITING_FOR_INJECT;
-            phaseStart = now;
-          }
+        else if ((now - stableStart >= STABLE_DURATION) &&
+                 (elapsed >= BASELINE_MIN_MS) && !baselineReady) {
+          baselineReading = mqRaw;
+          baselineReady = true;
+          phase = WAITING_FOR_INJECT;
+          phaseStart = now;
         }
       } else {
         stableStart = 0;
@@ -237,7 +210,7 @@ void loop() {
 
     case WAITING_FOR_INJECT:
       setPumps(false, false);
-      pwmWriteDuty(0);
+      ledcWrite(HEATERPIN, 0);
       if (elapsed >= WAIT_INJECT_MAX_MS) {
         phase = VAPOR_INJECTION;
         phaseStart = now;
@@ -246,7 +219,7 @@ void loop() {
 
     case VAPOR_INJECTION:
       setPumps(true, false);
-      pwmWriteDuty(0);
+      ledcWrite(HEATERPIN, 0);
       if (elapsed > 5000) {
         phase = ADSORBTION;
         phaseStart = now;
@@ -255,7 +228,7 @@ void loop() {
 
     case ADSORBTION:
       setPumps(false, false);
-      pwmWriteDuty(0);
+      ledcWrite(HEATERPIN, 0);
       if (elapsed > 7000) {
         phase = HEATING;
         phaseStart = now;
@@ -268,7 +241,7 @@ void loop() {
       if (temp < targetOutsideTemp - 1) duty = 255;
       else if (temp < targetOutsideTemp) duty = 128;
       else duty = 0;
-      pwmWriteDuty(duty);
+      ledcWrite(HEATERPIN, duty);
 
       if (elapsed >= MIN_HEATING_MS && temp >= targetOutsideTemp) {
         phase = MEASUREMENT;
@@ -283,7 +256,7 @@ void loop() {
       if (temp < targetOutsideTemp - 1) duty = 200;
       else if (temp < targetOutsideTemp) duty = 100;
       else duty = 0;
-      pwmWriteDuty(duty);
+      ledcWrite(HEATERPIN, duty);
 
       if (elapsed >= MEASUREMENT_MS) {
         phase = FLUSH;
@@ -294,7 +267,7 @@ void loop() {
 
     case FLUSH:
       setPumps(true, true);
-      pwmWriteDuty(0);
+      ledcWrite(HEATERPIN, 0);
       if (elapsed >= FLUSH_MS) {
         phase = READY;
         phaseStart = now;
